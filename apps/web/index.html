@@ -27,6 +27,7 @@
     .muted{color:var(--muted)}
     .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
     .pill{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--chip);border:1px solid var(--stroke);color:var(--muted)}
+    .pill.badge-remaining{background:linear-gradient(180deg,#2359ff,#1f46c6);border-color:#6f93ff;color:#eef4ff;font-weight:700}
 
     .card{background:var(--card);border:1px solid var(--stroke);border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 10px 24px #0000002a}
     .card h2{margin:0 0 10px;font-size:1.06rem}
@@ -133,9 +134,17 @@ function el(tag, attrs={}, children=[]){
 
 let state=null;
 let ui = { hideInCart:true, collapsedCats:{}, query:'', ...loadUi() };
+let pollTimer=null;
+let isLoading=false;
 
 async function api(path, opts={}){
-  const res = await fetch(API+path, { ...opts, headers: { 'Content-Type':'application/json', ...(opts.headers||{}) } });
+  const method = String(opts.method || 'GET').toUpperCase();
+  const bust = method === 'GET' ? (path.includes('?') ? '&' : '?') + 'ts=' + Date.now() : '';
+  const res = await fetch(API + path + bust, {
+    cache: 'no-store',
+    ...opts,
+    headers: { 'Content-Type':'application/json', ...(opts.headers||{}) }
+  });
   if(!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -284,7 +293,7 @@ function render(){
       el('div',{class:'cat-head'},[
         el('div',{class:'cat-title'},[
           el('h2',{},[cat]),
-          el('span',{class:'pill'},[`נשאר: ${remaining.length}`]),
+          el('span',{class:'pill badge-remaining'},[`נשאר: ${remaining.length}`]),
           el('span',{class:'pill'},[`בעגלה: ${carted.length}`])
         ]),
         el('button',{class:'ghost', onClick:()=>{ ui.collapsedCats[cat]=!collapsed; saveUi({collapsedCats:ui.collapsedCats}); render(); }},[collapsed?'הצג':'כווץ'])
@@ -297,10 +306,23 @@ function render(){
 }
 
 async function load(){
-  const token = getToken();
-  const data = await api(`/api/shopping/session/${token}`);
-  state=data;
-  render();
+  if(isLoading) return;
+  isLoading = true;
+  try {
+    const token = getToken();
+    const data = await api(`/api/shopping/session/${token}`);
+    state=data;
+    render();
+  } finally {
+    isLoading = false;
+  }
+}
+
+function startLiveSync(){
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(() => {
+    load().catch(()=>{});
+  }, 3000);
 }
 
 document.getElementById('search').addEventListener('input', (e)=>{
@@ -318,7 +340,12 @@ document.getElementById('toggleCartView').addEventListener('click', ()=>{
 });
 document.getElementById('toggleCartView').textContent = ui.hideInCart ? 'הסתר מה שבעגלה' : 'הצג מה שבעגלה';
 
-load().catch(async (e)=>{
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  load().catch(()=>{});
+});
+
+load().then(startLiveSync).catch(async (e)=>{
   const root = document.getElementById('root');
   const token = getToken();
   root.innerHTML='';
