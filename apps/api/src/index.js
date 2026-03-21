@@ -122,6 +122,19 @@ app.post('/api/shopping/trip/:tripId/finish', asyncHandler(async (req, res) => {
   res.json(out);
 }));
 
+app.post('/api/admin/reset', requireAllowedChatId, asyncHandler(async (req, res) => {
+  // Dangerous: full wipe including history. Intended for early dev only.
+  const mode = String(req.body?.mode || 'full');
+  if (mode !== 'full') return res.status(400).json({ error: 'unsupported_mode' });
+
+  const household = await ensureHouseholdByChatId(ALLOWED_CHAT_ID, 'רשימת קניות');
+  // lazily import to avoid circulars
+  const { resetHouseholdFull } = await import('./logic-supa.js');
+  await resetHouseholdFull({ householdId: household.id });
+
+  res.json({ ok: true });
+}));
+
 // Error handler (ensures async errors don't crash the process / timeout serverless)
 app.use((err, req, res, next) => {
   const msg = err?.message || String(err);

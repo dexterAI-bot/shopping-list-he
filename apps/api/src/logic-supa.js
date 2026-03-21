@@ -181,6 +181,13 @@ export async function setCartEntry({ tripId, itemId, in_cart, price = null, qty_
   if (error) throw error;
 }
 
+export async function resetHouseholdFull({ householdId }) {
+  // Deletes everything for a household (items, trips, cart entries, purchases, sessions)
+  // NOTE: tables have FK cascade for household->items/trips/sessions, and trip->cart/purchases.
+  const { error } = await supabase.from('households').delete().eq('id', householdId);
+  if (error) throw error;
+}
+
 export async function finishTrip({ tripId }) {
   const trip = await getTrip(tripId);
   if (trip.status !== 'ACTIVE') return { ok: false, error: 'trip_not_active' };
