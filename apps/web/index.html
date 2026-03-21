@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>מצב קניות</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#0b1020; color:#e8eeff}
+    a{color:#7ab7ff}
+    .wrap{max-width:900px;margin:0 auto;padding:16px}
+    .card{background:#111a33;border:1px solid #2b3a73;border-radius:14px;padding:14px;margin:12px 0}
+    h1{font-size:1.3rem;margin:8px 0 12px}
+    .muted{color:#b9c4ee}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    input,button{font-size:16px}
+    input{padding:10px;border-radius:10px;border:1px solid #2b3a73;background:#0b1020;color:#e8eeff}
+    button{padding:10px 12px;border-radius:10px;border:1px solid #2b3a73;background:#1c2954;color:#e8eeff;cursor:pointer}
+    button.primary{background:#2f7cff;border-color:#2f7cff}
+    button.danger{background:#8b2a2a;border-color:#8b2a2a}
+    .cat{margin-top:14px}
+    .item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px;border:1px solid #2b3a73;border-radius:12px;margin:8px 0}
+    .pill{font-size:12px;padding:2px 10px;border-radius:999px;background:#1c2954;border:1px solid #2b3a73;color:#b9c4ee}
+    dialog{border:none;border-radius:14px;max-width:520px;width:90%;background:#111a33;color:#e8eeff}
+    dialog::backdrop{background:rgba(0,0,0,.55)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>מצב קניות</h1>
+    <div id="root" class="muted">טוען…</div>
+  </div>
+
+  <dialog id="priceDialog">
+    <form method="dialog" class="card">
+      <h2 style="margin:0 0 8px">הכנסה לעגלה</h2>
+      <div id="dlgItem" class="muted" style="margin-bottom:10px"></div>
+      <div class="row">
+        <input id="price" inputmode="decimal" placeholder="מחיר (ש״ח)" />
+        <input id="qtyBought" inputmode="decimal" placeholder="כמות שנקנתה" />
+      </div>
+      <div style="height:10px"></div>
+      <input id="note" placeholder="הערה (אופציונלי)" style="width:100%" />
+      <div style="height:12px"></div>
+      <div class="row">
+        <button value="cancel">ביטול</button>
+        <button id="confirm" class="primary" value="ok">הכנס לעגלה</button>
+      </div>
+    </form>
+  </dialog>
+
+<script>
+const API = (location.origin.includes('8788') ? 'http://127.0.0.1:8787' : location.origin.replace(/:\d+$/,':8787'));
+
+function qs(k){return new URLSearchParams(location.search).get(k)}
+
+function el(tag, attrs={}, children=[]){
+  const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs)){
+    if(k==='class') e.className=v;
+    else if(k.startsWith('on')) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else e.setAttribute(k,v);
+  }
+  for(const c of children){
+    if(typeof c==='string') e.appendChild(document.createTextNode(c));
+    else if(c) e.appendChild(c);
+  }
+  return e;
+}
+
+let state=null;
+let currentItem=null;
+
+async function api(path, opts={}){
+  const res = await fetch(API+path, { ...opts, headers: { 'Content-Type':'application/json', ...(opts.headers||{}) } });
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function groupBy(items, keyFn){
+  const m=new Map();
+  for(const it of items){
+    const k=keyFn(it);
+    if(!m.has(k)) m.set(k,[]);
+    m.get(k).push(it);
+  }
+  return m;
+}
+
+function inCart(itemId){
+  return (state.cart||[]).some(c => c.item_id===itemId && Number(c.in_cart)===1);
+}
+
+async function toggleCart(it){
+  if(!state.trip) return;
+  if(inCart(it.id)){
+    await api(`/api/shopping/trip/${state.trip.id}/cart/${it.id}`, { method:'POST', body: JSON.stringify({ in_cart:false }) });
+    await load();
+    return;
+  }
+  currentItem=it;
+  document.getElementById('dlgItem').textContent = it.name_he;
+  document.getElementById('price').value='';
+  document.getElementById('qtyBought').value=(it.qty ?? '');
+  document.getElementById('note').value='';
+  const dlg=document.getElementById('priceDialog');
+  dlg.showModal();
+  const res = await new Promise(resolve=>{
+    dlg.addEventListener('close', ()=>resolve(dlg.returnValue), {once:true});
+  });
+  if(res!=='ok') return;
+  const price = parseFloat(document.getElementById('price').value);
+  const qty_bought = parseFloat(document.getElementById('qtyBought').value);
+  const note = document.getElementById('note').value;
+  await api(`/api/shopping/trip/${state.trip.id}/cart/${it.id}`, { method:'POST', body: JSON.stringify({ in_cart:true, price: Number.isFinite(price)?price:null, qty_bought: Number.isFinite(qty_bought)?qty_bought:null, note: note||null }) });
+  await load();
+}
+
+async function finish(){
+  if(!confirm('לסיים קנייה? רק פריטים שבעגלה ירדו מהרשימה.')) return;
+  const out = await api(`/api/shopping/trip/${state.trip.id}/finish`, { method:'POST' });
+  alert(`סיימתי. נרכשו: ${out.purchasedCount}`);
+  await load();
+}
+
+async function saveStore(){
+  const store_name=document.getElementById('storeName').value.trim();
+  const store_branch=document.getElementById('storeBranch').value.trim();
+  const city=document.getElementById('storeCity').value.trim();
+  if(!store_name){ alert('צריך שם חנות'); return; }
+  await api(`/api/shopping/trip/${state.trip.id}/store`, { method:'POST', body: JSON.stringify({ store_name, store_branch: store_branch||null, city: city||null }) });
+  await load();
+}
+
+function render(){
+  const root=document.getElementById('root');
+  root.innerHTML='';
+  if(!state){ root.textContent='שגיאה'; return; }
+
+  const trip=state.trip;
+  root.appendChild(el('div',{class:'card'},[
+    el('div',{class:'muted'},['קישור זה זמני.']),
+    el('div',{},[el('span',{class:'pill'},[`סטטוס: ${trip?.status||'?'}`])])
+  ]));
+
+  root.appendChild(el('div',{class:'card'},[
+    el('h2',{},['איפה קונים היום?']),
+    el('div',{class:'row'},[
+      el('input',{id:'storeName',placeholder:'שם חנות',value: trip?.store_name||''}),
+      el('input',{id:'storeBranch',placeholder:'סניף (אופציונלי)',value: trip?.store_branch||''}),
+      el('input',{id:'storeCity',placeholder:'עיר (אופציונלי)',value: trip?.city||''}),
+      el('button',{class:'primary',onClick:saveStore},['שמור'])
+    ])
+  ]));
+
+  const byCat = groupBy(state.items||[], it => it.category||'כללי');
+  for(const [cat, items] of [...byCat.entries()].sort((a,b)=>a[0].localeCompare(b[0],'he'))){
+    root.appendChild(el('div',{class:'card cat'},[
+      el('h2',{},[cat]),
+      ...items.map(it => el('div',{class:'item'},[
+        el('div',{},[
+          el('div',{},[it.name_he]),
+          el('div',{class:'muted'},[it.qty?`כמות: ${it.qty}`:''])
+        ]),
+        el('button',{class: inCart(it.id)?'danger':'primary', onClick:()=>toggleCart(it)},[ inCart(it.id)?'הוצא מהעגלה':'הכנס לעגלה' ])
+      ]))
+    ]));
+  }
+
+  if(trip?.status==='ACTIVE'){
+    root.appendChild(el('div',{class:'card'},[
+      el('button',{class:'primary',onClick:finish},['סיים קנייה'])
+    ]));
+  }
+}
+
+async function load(){
+  const token = location.pathname.split('/').filter(Boolean).pop();
+  const data = await api(`/api/shopping/session/${token}`);
+  state=data;
+  render();
+}
+
+load().catch(e=>{
+  document.getElementById('root').textContent='קישור לא תקין / פג תוקף.';
+});
+</script>
+</body>
+</html>

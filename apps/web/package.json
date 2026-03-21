@@ -1,0 +1,9 @@
+{
+  "name": "@shopping/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve -l 8788 .",
+    "build": "echo 'static (no build)'"
+  }
+}
