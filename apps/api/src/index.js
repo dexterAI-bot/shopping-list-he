@@ -60,7 +60,13 @@ app.post('/integrations/telegram/webhook', async (req, res) => {
 });
 
 // API for bot/bridge
-app.post('/api/items', requireAllowedChatId, async (req, res) => {
+function asyncHandler(fn) {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+}
+
+app.post('/api/items', requireAllowedChatId, asyncHandler(async (req, res) => {
   const { nameHe, qty, unit } = req.body || {};
   if (!nameHe || typeof nameHe !== 'string') return res.status(400).json({ error: 'nameHe_required' });
 
@@ -68,21 +74,21 @@ app.post('/api/items', requireAllowedChatId, async (req, res) => {
   const item = await upsertItem({ householdId: household.id, nameHe, qty: typeof qty === 'number' ? qty : null, unit: unit || null });
   const items = await listActiveItems(household.id);
   res.json({ ok: true, item, items });
-});
+}));
 
-app.get('/api/items', requireAllowedChatId, async (req, res) => {
+app.get('/api/items', requireAllowedChatId, asyncHandler(async (req, res) => {
   const household = await ensureHouseholdByChatId(ALLOWED_CHAT_ID, 'רשימת קניות');
   const items = await listActiveItems(household.id);
   res.json({ ok: true, items });
-});
+}));
 
-app.post('/api/shopping/start', requireAllowedChatId, async (req, res) => {
+app.post('/api/shopping/start', requireAllowedChatId, asyncHandler(async (req, res) => {
   const household = await ensureHouseholdByChatId(ALLOWED_CHAT_ID, 'רשימת קניות');
   const sess = await startShopping({ householdId: household.id, expiresHours: 12 });
   res.json({ ok: true, ...sess });
-});
+}));
 
-app.get('/api/shopping/session/:token', async (req, res) => {
+app.get('/api/shopping/session/:token', asyncHandler(async (req, res) => {
   const token = String(req.params.token || '');
   const s = await getSession(token);
   if (!s) return res.status(404).json({ error: 'invalid_session' });
@@ -92,28 +98,37 @@ app.get('/api/shopping/session/:token', async (req, res) => {
   const cart = await listCart(s.trip_id);
 
   res.json({ ok: true, session: s, trip, items, cart });
-});
+}));
 
-app.post('/api/shopping/trip/:tripId/store', async (req, res) => {
+app.post('/api/shopping/trip/:tripId/store', asyncHandler(async (req, res) => {
   const tripId = String(req.params.tripId);
   const { store_name, store_branch, city } = req.body || {};
   if (!store_name) return res.status(400).json({ error: 'store_name_required' });
   const trip = await setStore({ tripId, store_name, store_branch, city });
   res.json({ ok: true, trip });
-});
+}));
 
-app.post('/api/shopping/trip/:tripId/cart/:itemId', async (req, res) => {
+app.post('/api/shopping/trip/:tripId/cart/:itemId', asyncHandler(async (req, res) => {
   const tripId = String(req.params.tripId);
   const itemId = String(req.params.itemId);
   const { in_cart, price, qty_bought, note } = req.body || {};
   await setCartEntry({ tripId, itemId, in_cart: Boolean(in_cart), price: price ?? null, qty_bought: qty_bought ?? null, note: note ?? null });
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/shopping/trip/:tripId/finish', async (req, res) => {
+app.post('/api/shopping/trip/:tripId/finish', asyncHandler(async (req, res) => {
   const tripId = String(req.params.tripId);
   const out = await finishTrip({ tripId });
   res.json(out);
+}));
+
+// Error handler (ensures async errors don't crash the process / timeout serverless)
+app.use((err, req, res, next) => {
+  const msg = err?.message || String(err);
+  // Supabase errors can be objects
+  const details = typeof err === 'object' ? err : null;
+  console.error('[api] error', msg);
+  res.status(500).json({ error: msg, details });
 });
 
 app.listen(PORT, () => {
