@@ -190,8 +190,17 @@ async function load(){
   render();
 }
 
-load().catch(e=>{
-  document.getElementById('root').textContent='קישור לא תקין / פג תוקף.';
+load().catch(async (e)=>{
+  const root = document.getElementById('root');
+  const token = getToken();
+  root.innerHTML='';
+  root.appendChild(el('div',{class:'card'},[
+    el('h2',{},['קישור לא תקין / פג תוקף']),
+    el('div',{class:'muted'},['פרטי תקלה (לעזרה בדיבוג):']),
+    el('div',{class:'muted'},[`token: ${token||'(missing)'}`]),
+    el('div',{class:'muted'},[`api: ${API}`]),
+    el('div',{class:'muted'},[`error: ${String(e?.message||e)}`])
+  ]));
 });
 </script>
 </body>
