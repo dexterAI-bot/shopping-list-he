@@ -52,6 +52,16 @@
 const API = (location.origin.includes('8788') ? 'http://127.0.0.1:8787' : location.origin.replace(/:\d+$/,':8787'));
 
 function qs(k){return new URLSearchParams(location.search).get(k)}
+function getToken(){
+  const q = qs('token');
+  if(q) return q;
+  const parts = location.pathname.split('/').filter(Boolean);
+  // allow /shop/<token>
+  if(parts.length>=2 && parts[0]==='shop') return parts[1];
+  // allow /<token>
+  if(parts.length===1) return parts[0];
+  return '';
+}
 
 function el(tag, attrs={}, children=[]){
   const e=document.createElement(tag);
@@ -174,7 +184,7 @@ function render(){
 }
 
 async function load(){
-  const token = location.pathname.split('/').filter(Boolean).pop();
+  const token = getToken();
   const data = await api(`/api/shopping/session/${token}`);
   state=data;
   render();
