@@ -5,28 +5,85 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>מצב קניות</title>
   <style>
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#0b1020; color:#e8eeff}
-    a{color:#7ab7ff}
-    .wrap{max-width:900px;margin:0 auto;padding:16px}
-    .card{background:#111a33;border:1px solid #2b3a73;border-radius:14px;padding:14px;margin:12px 0}
-    h1{font-size:1.3rem;margin:8px 0 12px}
-    .muted{color:#b9c4ee}
+    :root{
+      --bg:#070c1e;
+      --bg2:#0d1430;
+      --card:#111a37cc;
+      --card-solid:#111a37;
+      --stroke:#2a3d7a;
+      --text:#eaf0ff;
+      --muted:#b7c3ef;
+      --primary:#4d7dff;
+      --primary-2:#3f6cf0;
+      --danger:#a53a47;
+      --ok:#2f9e71;
+      --chip:#1a2755;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 100% -10%, #21306a55 0%, transparent 60%),
+        radial-gradient(900px 500px at -10% 100%, #1f5f8055 0%, transparent 60%),
+        linear-gradient(180deg,var(--bg),var(--bg2));
+      min-height:100vh;
+    }
+    .wrap{max-width:980px;margin:0 auto;padding:18px}
+    .topbar{
+      position:sticky; top:0; z-index:50;
+      backdrop-filter: blur(10px);
+      background:#0a1026b3;
+      border:1px solid #2a3d7a66;
+      border-radius:16px;
+      padding:12px 14px;
+      margin-bottom:14px;
+    }
+    .title{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    h1{font-size:1.35rem;margin:0}
+    .muted{color:var(--muted)}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .pill{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--chip);border:1px solid var(--stroke);color:var(--muted)}
+
+    .card{background:var(--card);border:1px solid var(--stroke);border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 10px 24px #0000002a}
+    .card h2{margin:0 0 10px;font-size:1.06rem}
+
     .row{display:flex;gap:10px;flex-wrap:wrap}
     input,button{font-size:16px}
-    input{padding:10px;border-radius:10px;border:1px solid #2b3a73;background:#0b1020;color:#e8eeff}
-    button{padding:10px 12px;border-radius:10px;border:1px solid #2b3a73;background:#1c2954;color:#e8eeff;cursor:pointer}
-    button.primary{background:#2f7cff;border-color:#2f7cff}
-    button.danger{background:#8b2a2a;border-color:#8b2a2a}
+    input{
+      padding:11px 12px;border-radius:12px;border:1px solid var(--stroke);
+      background:#0b1430;color:var(--text);min-width:180px;flex:1;
+    }
+    button{
+      padding:11px 13px;border-radius:12px;border:1px solid var(--stroke);
+      background:#1a2a63;color:var(--text);cursor:pointer;transition:.15s transform,.15s opacity,.2s background;
+    }
+    button:hover{transform:translateY(-1px)}
+    button.primary{background:linear-gradient(180deg,var(--primary),var(--primary-2));border-color:#5d87ff}
+    button.danger{background:linear-gradient(180deg,#be4a59,#9d3747);border-color:#c95f6c}
+    button.ok{background:linear-gradient(180deg,#39b780,#289669);border-color:#49c591}
+
     .cat{margin-top:14px}
-    .item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px;border:1px solid #2b3a73;border-radius:12px;margin:8px 0}
-    .pill{font-size:12px;padding:2px 10px;border-radius:999px;background:#1c2954;border:1px solid #2b3a73;color:#b9c4ee}
-    dialog{border:none;border-radius:14px;max-width:520px;width:90%;background:#111a33;color:#e8eeff}
+    .cat-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .item{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px;border:1px solid var(--stroke);border-radius:12px;margin:8px 0;background:#0b1533a8}
+    .item-name{font-weight:600}
+
+    .empty{padding:18px;border:1px dashed var(--stroke);border-radius:14px;background:#0d183a80;text-align:center}
+
+    dialog{border:none;border-radius:16px;max-width:560px;width:92%;background:var(--card-solid);color:var(--text)}
     dialog::backdrop{background:rgba(0,0,0,.55)}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>מצב קניות</h1>
+    <div class="topbar">
+      <div class="title">
+        <h1>🛒 מצב קניות</h1>
+        <span class="pill">עברית מלאה</span>
+      </div>
+      <div id="topStats" class="chips"></div>
+    </div>
     <div id="root" class="muted">טוען…</div>
   </div>
 
@@ -143,14 +200,21 @@ async function saveStore(){
 
 function render(){
   const root=document.getElementById('root');
+  const topStats=document.getElementById('topStats');
   root.innerHTML='';
+  topStats.innerHTML='';
   if(!state){ root.textContent='שגיאה'; return; }
 
   const trip=state.trip;
-  root.appendChild(el('div',{class:'card'},[
-    el('div',{class:'muted'},['קישור זה זמני.']),
-    el('div',{},[el('span',{class:'pill'},[`סטטוס: ${trip?.status||'?'}`])])
-  ]));
+  const items = state.items || [];
+  const inCartCount = items.filter(i=>inCart(i.id)).length;
+
+  topStats.append(
+    el('span',{class:'pill'},[`סטטוס: ${trip?.status||'?'}`]),
+    el('span',{class:'pill'},[`פריטים ברשימה: ${items.length}`]),
+    el('span',{class:'pill'},[`בעגלה: ${inCartCount}`]),
+    el('span',{class:'pill'},[`תוקף קישור: זמני`]),
+  );
 
   root.appendChild(el('div',{class:'card'},[
     el('h2',{},['איפה קונים היום?']),
@@ -162,23 +226,35 @@ function render(){
     ])
   ]));
 
-  const byCat = groupBy(state.items||[], it => it.category||'כללי');
-  for(const [cat, items] of [...byCat.entries()].sort((a,b)=>a[0].localeCompare(b[0],'he'))){
+  const byCat = groupBy(items, it => it.category||'כללי');
+  if(!items.length){
+    root.appendChild(el('div',{class:'card'},[
+      el('div',{class:'empty'},[
+        el('div',{},['הרשימה כרגע ריקה ✨']),
+        el('div',{class:'muted'},['הוסיפו פריטים בקבוצת הטלגרם ואז לחצו שוב על "התחל קניות".'])
+      ])
+    ]));
+  }
+
+  for(const [cat, catItems] of [...byCat.entries()].sort((a,b)=>a[0].localeCompare(b[0],'he'))){
     root.appendChild(el('div',{class:'card cat'},[
-      el('h2',{},[cat]),
-      ...items.map(it => el('div',{class:'item'},[
+      el('div',{class:'cat-head'},[
+        el('h2',{},[cat]),
+        el('span',{class:'pill'},[`${catItems.length} פריטים`])
+      ]),
+      ...catItems.map(it => el('div',{class:'item'},[
         el('div',{},[
-          el('div',{},[it.name_he]),
+          el('div',{class:'item-name'},[it.name_he]),
           el('div',{class:'muted'},[it.qty?`כמות: ${it.qty}`:''])
         ]),
-        el('button',{class: inCart(it.id)?'danger':'primary', onClick:()=>toggleCart(it)},[ inCart(it.id)?'הוצא מהעגלה':'הכנס לעגלה' ])
+        el('button',{class: inCart(it.id)?'danger':'ok', onClick:()=>toggleCart(it)},[ inCart(it.id)?'הוצא מהעגלה':'הכנס לעגלה' ])
       ]))
     ]));
   }
 
   if(trip?.status==='ACTIVE'){
     root.appendChild(el('div',{class:'card'},[
-      el('button',{class:'primary',onClick:finish},['סיים קנייה'])
+      el('button',{class:'primary',onClick:finish},[`סיים קנייה (${inCartCount})`])
     ]));
   }
 }
