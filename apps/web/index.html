@@ -49,7 +49,7 @@
   </dialog>
 
 <script>
-const API = (location.origin.includes('8788') ? 'http://127.0.0.1:8787' : location.origin.replace(/:\d+$/,':8787'));
+const API = (location.origin.includes('8788') ? 'http://127.0.0.1:8787' : 'https://shopping-list-he-api.vercel.app');
 
 function qs(k){return new URLSearchParams(location.search).get(k)}
 function getToken(){
