@@ -18,11 +18,20 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 const PORT = Number(process.env.PORT || 8787);
-const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
-const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'http://127.0.0.1:8788').trim();
 
 // Hard lock to one Telegram group for v1
 const ALLOWED_CHAT_ID = String(process.env.TELEGRAM_SHOPPING_CHAT_ID || '').trim();
+
+// Prefer explicit env; fallback to reading OpenClaw config (local dev only)
+let TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || '').trim();
+if (!TELEGRAM_BOT_TOKEN) {
+  try {
+    const cfg = JSON.parse(await import('node:fs').then(m=>m.readFileSync('/Users/dexterai/.openclaw/openclaw.json','utf-8')));
+    TELEGRAM_BOT_TOKEN = String(cfg?.channels?.telegram?.botToken || '').trim();
+  } catch {}
+}
+
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || 'http://127.0.0.1:8788').trim();
 
 function requireAllowedChatId(req, res, next) {
   const chatId = String(req.headers['x-telegram-chat-id'] || '').trim();
