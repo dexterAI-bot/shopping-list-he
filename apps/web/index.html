@@ -132,7 +132,7 @@ function el(tag, attrs={}, children=[]){
 }
 
 let state=null;
-let ui = { hideInCart:true, collapsedCats:{}, query:'', ...loadUi() };
+let ui = { hideInCart:true, collapsedCats:{}, query:'', storeCollapsed:true, ...loadUi() };
 let pollTimer=null;
 let isLoading=false;
 let lastSavedStoreAt=0;
@@ -193,6 +193,8 @@ async function toggleCart(it){
 async function finish(){
   if(!confirm('לסיים קנייה? רק פריטים שבעגלה ירדו מהרשימה.')) return;
   const out = await api(`/api/shopping/trip/${state.trip.id}/finish`, { method:'POST' });
+  ui.storeCollapsed = true;
+  saveUi({storeCollapsed:true});
   alert(`סיימתי. נרכשו: ${out.purchasedCount}`);
   await load();
 }
@@ -223,18 +225,34 @@ function render(){
     el('span',{class:'pill'},[`בעגלה: ${inCartCount}`])
   );
 
-  const storeCardChildren = [
-    el('h2',{},['איפה קונים היום?']),
-    el('div',{class:'row'},[
-      el('input',{id:'storeName',placeholder:'שם חנות',value: trip?.store_name||''}),
-      el('input',{id:'storeBranch',placeholder:'סניף (אופציונלי)',value: trip?.store_branch||''}),
-      el('input',{id:'storeCity',placeholder:'עיר (אופציונלי)',value: trip?.city||''}),
-      el('button',{class:'primary',onClick:saveStore},['שמור'])
-    ])
-  ];
-  if(lastSavedStoreAt && Date.now()-lastSavedStoreAt < 8000){
-    storeCardChildren.push(el('div',{class:'notice'},['✅ נשמר בהצלחה']))
+  const storeTitle = el('div',{class:'cat-head'},[
+    el('div',{class:'cat-title'},[
+      el('h2',{},['איפה קונים היום?']),
+      (trip?.store_name || trip?.store_branch || trip?.city)
+        ? el('span',{class:'pill'},[`${trip?.store_name||''}${trip?.store_branch?` · ${trip.store_branch}`:''}${trip?.city?` · ${trip.city}`:''}`])
+        : el('span',{class:'pill'},['לא הוגדר'])
+    ]),
+    el('button',{class:'ghost',onClick:()=>{ ui.storeCollapsed=!ui.storeCollapsed; saveUi({storeCollapsed:ui.storeCollapsed}); render(); }},[ui.storeCollapsed?'הצג':'כווץ'])
+  ]);
+
+  const storeCardChildren = [storeTitle];
+
+  // אחרי סיום קנייה: מציגים חלק חנות ריק כברירת מחדל לקנייה הבאה
+  const forceEmptyStore = trip?.status === 'FINISHED';
+  if(!ui.storeCollapsed){
+    storeCardChildren.push(
+      el('div',{class:'row'},[
+        el('input',{id:'storeName',placeholder:'שם חנות',value: forceEmptyStore ? '' : (trip?.store_name||'')}),
+        el('input',{id:'storeBranch',placeholder:'סניף (אופציונלי)',value: forceEmptyStore ? '' : (trip?.store_branch||'')}),
+        el('input',{id:'storeCity',placeholder:'עיר (אופציונלי)',value: forceEmptyStore ? '' : (trip?.city||'')}),
+        el('button',{class:'primary',onClick:saveStore},['שמור'])
+      ])
+    );
+    if(lastSavedStoreAt && Date.now()-lastSavedStoreAt < 8000){
+      storeCardChildren.push(el('div',{class:'notice'},['✅ נשמר בהצלחה']))
+    }
   }
+
   root.appendChild(el('div',{class:'card'}, storeCardChildren));
 
   const byCat = groupBy(items, it => it.category||'כללי');
