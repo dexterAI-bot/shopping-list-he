@@ -62,14 +62,12 @@
     <div class="topbar">
       <div class="title">
         <h1>🛒 מצב קניות</h1>
-        <span class="pill">עברית מלאה</span>
       </div>
       <div style="height:10px"></div>
       <div class="row">
         <input id="search" placeholder="חפש פריט..." />
         <button id="toggleCartView" class="ghost">הסתר מה שבעגלה</button>
       </div>
-      <div id="topStats" class="chips"></div>
     </div>
     <div id="root" class="muted">טוען…</div>
   </div>
@@ -208,22 +206,14 @@ async function saveStore(){
 
 function render(){
   const root=document.getElementById('root');
-  const topStats=document.getElementById('topStats');
   const footerMeta=document.getElementById('footerMeta');
-  root.innerHTML=''; topStats.innerHTML=''; footerMeta.innerHTML='';
+  root.innerHTML=''; footerMeta.innerHTML='';
   if(!state){ root.textContent='שגיאה'; return; }
 
   const trip=state.trip;
   const items = (state.items || []).filter(visibleByQuery);
   const inCartCount = items.filter(i=>inCart(i.id)).length;
   const remainingCount = items.length - inCartCount;
-
-  topStats.append(
-    el('span',{class:'pill'},[`סטטוס: ${trip?.status||'?'}`]),
-    el('span',{class:'pill'},[`סה"כ: ${items.length}`]),
-    el('span',{class:'pill'},[`נשאר: ${remainingCount}`]),
-    el('span',{class:'pill'},[`בעגלה: ${inCartCount}`]),
-  );
 
   footerMeta.append(
     el('span',{class:'pill'},[`נשאר לאסוף: ${remainingCount}`]),
