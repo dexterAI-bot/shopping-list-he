@@ -50,6 +50,7 @@
     .empty{padding:18px;border:1px dashed var(--stroke);border-radius:14px;background:#0d183a80;text-align:center}
     .divider{height:1px;background:#32457f66;margin:10px 0}
     .notice{margin-top:8px;font-size:13px;color:#cfe0ff}
+    .status-line{margin:8px 0 0;padding:6px 10px;border-radius:12px;border:1px solid #32457f66;background:#0f183a;color:#9fc3ff;font-size:13px}
 
     dialog{border:none;border-radius:16px;max-width:560px;width:92%;background:var(--card-solid);color:var(--text)}
     dialog::backdrop{background:rgba(0,0,0,.55)}
@@ -217,6 +218,9 @@ function render(){
 
   const trip=state.trip;
   const items = (state.items || []).filter(visibleByQuery);
+  const risk=state.risk||{};
+  const reasonText = risk.reason?.trim() ? risk.reason : 'הכל תקין';
+  root.appendChild(el('div',{class:'status-line'},[`סטטוס: ${(risk.level||'ok').toUpperCase()} — ${reasonText}`]));
   const inCartCount = items.filter(i=>inCart(i.id)).length;
   const remainingCount = items.length - inCartCount;
 
