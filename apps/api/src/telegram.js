@@ -1,4 +1,4 @@
-import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems, removeItemByName } from './logic-supa.js';
+import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems, removeItemByName, removeItemById } from './logic-supa.js';
 
 export function parseItemsFromText(text) {
   const raw = String(text || '').trim();
@@ -18,18 +18,24 @@ export function parseItemsFromText(text) {
   });
 }
 
-export async function telegramSendMessage({ token, chatId, text }) {
-  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+async function telegramApi(token, method, payload) {
+  const url = `https://api.telegram.org/bot${token}/${method}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const t = await res.text();
-    throw new Error(`Telegram send failed: ${res.status} ${t}`);
+    throw new Error(`Telegram ${method} failed: ${res.status} ${t}`);
   }
   return res.json();
+}
+
+export async function telegramSendMessage({ token, chatId, text, replyMarkup = null }) {
+  const payload = { chat_id: chatId, text, disable_web_page_preview: true };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
+  return telegramApi(token, 'sendMessage', payload);
 }
 
 function isExplicitAddIntent(text) {
@@ -63,6 +69,38 @@ function parseRemoveIntent(text) {
 }
 
 export async function handleTelegramUpdate({ update, botToken, allowedChatId, publicBaseUrl }) {
+  // Inline button callback: remove by item id
+  if (update?.callback_query) {
+    const cq = update.callback_query;
+    const chatId = String(cq.message?.chat?.id || '');
+    if (String(allowedChatId) !== chatId) return { ok: true, ignored: true };
+
+    const data = String(cq.data || '');
+    if (data.startsWith('remove_item:')) {
+      const itemId = data.split(':')[1];
+      const household = await ensureHouseholdByChatId(chatId, 'רשימת קניות');
+      const out = await removeItemById({ householdId: household.id, itemId });
+
+      await telegramApi(botToken, 'answerCallbackQuery', {
+        callback_query_id: cq.id,
+        text: out.removed ? 'הוסר מהרשימה ✅' : 'לא נמצא ברשימה',
+        show_alert: false,
+      });
+
+      if (out.removed) {
+        await telegramSendMessage({ token: botToken, chatId, text: `הסרתי מהרשימה: ${out.item.name_he} ✅` });
+      }
+      return { ok: true, action: 'remove_callback', removed: out.removed };
+    }
+
+    await telegramApi(botToken, 'answerCallbackQuery', {
+      callback_query_id: cq.id,
+      text: 'פעולה לא נתמכת',
+      show_alert: false,
+    });
+    return { ok: true, ignored: true };
+  }
+
   const msg = update?.message;
   if (!msg) return { ok: true, ignored: true };
 
@@ -103,6 +141,23 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 - מחק חלב`,
     });
     return { ok: true, action: 'help' };
+  }
+
+  if (text === 'מחק' || text === '/מחק' || text === 'להוריד' || text === 'הסר') {
+    const items = await listActiveItems(household.id);
+    if (!items.length) {
+      await telegramSendMessage({ token: botToken, chatId, text: 'הרשימה ריקה כרגע.' });
+      return { ok: true, action: 'remove_menu_empty' };
+    }
+
+    const buttons = items.slice(0, 20).map((it) => [{ text: `🗑️ ${it.name_he}`, callback_data: `remove_item:${it.id}` }]);
+    await telegramSendMessage({
+      token: botToken,
+      chatId,
+      text: 'מה להסיר מהרשימה?',
+      replyMarkup: { inline_keyboard: buttons },
+    });
+    return { ok: true, action: 'remove_menu' };
   }
 
   const removeName = parseRemoveIntent(text);
