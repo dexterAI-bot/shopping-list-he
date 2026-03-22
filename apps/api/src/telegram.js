@@ -1,17 +1,15 @@
-import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems } from './logic.js';
+import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems } from './logic-supa.js';
 
 export function parseItemsFromText(text) {
   const raw = String(text || '').trim();
   if (!raw) return [];
 
-  // Split by newlines or commas
   const parts = raw
     .split(/\n|,/g)
     .map((s) => s.trim())
     .filter(Boolean);
 
   return parts.map((p) => {
-    // Support "2 חלב" or "חלב 2"
     const m1 = p.match(/^([0-9]+(?:\.[0-9]+)?)\s+(.+)$/);
     if (m1) return { nameHe: m1[2].trim(), qty: Number(m1[1]) };
     const m2 = p.match(/^(.+?)\s+([0-9]+(?:\.[0-9]+)?)$/);
@@ -44,12 +42,11 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
   const text = String(msg.text || '').trim();
   if (!text) return { ok: true, ignored: true };
 
-  const household = ensureHouseholdByChatId(chatId, 'רשימת קניות');
+  const household = await ensureHouseholdByChatId(chatId, 'רשימת קניות');
 
-  // Start shopping
   if (text === 'התחל קניות' || text === '/קניות') {
-    const sess = startShopping({ householdId: household.id, expiresHours: 12 });
-    const link = `${publicBaseUrl.replace(/\/$/, '')}/shop/${sess.token}`;
+    const sess = await startShopping({ householdId: household.id, expiresHours: 12 });
+    const link = `${publicBaseUrl.replace(/\/$/, '')}/shop/${sess.token}?v=live`;
     await telegramSendMessage({
       token: botToken,
       chatId,
@@ -58,15 +55,15 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
     return { ok: true, action: 'start_shopping', token: sess.token };
   }
 
-  // List
   if (text === 'רשימה' || text === '/רשימה') {
-    const items = listActiveItems(household.id);
+    const items = await listActiveItems(household.id);
     const grouped = new Map();
     for (const it of items) {
       const cat = it.category || 'כללי';
       if (!grouped.has(cat)) grouped.set(cat, []);
       grouped.get(cat).push(it);
     }
+
     let out = `ברשימה יש ${items.length} פריטים:\n`;
     for (const [cat, its] of [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], 'he'))) {
       out += `\n* ${cat}:\n`;
@@ -75,15 +72,15 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
       }
       if (its.length > 15) out += `- ... (+${its.length - 15})\n`;
     }
+
     await telegramSendMessage({ token: botToken, chatId, text: out });
     return { ok: true, action: 'list' };
   }
 
-  // Default: add items
   const toAdd = parseItemsFromText(text);
   const added = [];
   for (const it of toAdd) {
-    const row = upsertItem({
+    const row = await upsertItem({
       householdId: household.id,
       nameHe: it.nameHe,
       qty: typeof it.qty === 'number' ? it.qty : null,
