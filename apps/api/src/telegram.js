@@ -32,6 +32,26 @@ export async function telegramSendMessage({ token, chatId, text }) {
   return res.json();
 }
 
+function isExplicitAddIntent(text) {
+  const t = String(text || '').trim();
+  return (
+    t.startsWith('להוסיף ') ||
+    t.startsWith('/הוסף ') ||
+    t.startsWith('+') ||
+    /\n|,/.test(t) ||
+    /^([0-9]+(?:\.[0-9]+)?)\s+.+$/.test(t) ||
+    /^.+\s+([0-9]+(?:\.[0-9]+)?)$/.test(t)
+  );
+}
+
+function normalizeAddText(text) {
+  let t = String(text || '').trim();
+  if (t.startsWith('להוסיף ')) t = t.replace(/^להוסיף\s+/, '');
+  if (t.startsWith('/הוסף ')) t = t.replace(/^\/הוסף\s+/, '');
+  if (t.startsWith('+')) t = t.slice(1).trim();
+  return t;
+}
+
 export async function handleTelegramUpdate({ update, botToken, allowedChatId, publicBaseUrl }) {
   const msg = update?.message;
   if (!msg) return { ok: true, ignored: true };
@@ -53,6 +73,25 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
       text: `מצב קניות הופעל ✅\n\nלינק: ${link}`,
     });
     return { ok: true, action: 'start_shopping', token: sess.token };
+  }
+
+  if (text === 'עזרה' || text === '/עזרה') {
+    await telegramSendMessage({
+      token: botToken,
+      chatId,
+      text:
+`פקודות זמינות:
+- רשימה
+- התחל קניות
+- להוסיף <פריט>
+- +<פריט>
+
+דוגמאות:
+- להוסיף חלב
+- להוסיף חלב, ביצים
+- 2 חלב`,
+    });
+    return { ok: true, action: 'help' };
   }
 
   if (text === 'רשימה' || text === '/רשימה') {
@@ -77,7 +116,16 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
     return { ok: true, action: 'list' };
   }
 
-  const toAdd = parseItemsFromText(text);
+  if (!isExplicitAddIntent(text)) {
+    await telegramSendMessage({
+      token: botToken,
+      chatId,
+      text: 'כדי להוסיף לרשימה כתבו: "להוסיף <פריט>" (לדוגמה: להוסיף חלב)\nלעזרה: עזרה',
+    });
+    return { ok: true, action: 'ignored_non_add' };
+  }
+
+  const toAdd = parseItemsFromText(normalizeAddText(text));
   const added = [];
   for (const it of toAdd) {
     const row = await upsertItem({
