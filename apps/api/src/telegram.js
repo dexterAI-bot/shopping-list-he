@@ -1,4 +1,4 @@
-import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems } from './logic-supa.js';
+import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems, removeItemByName } from './logic-supa.js';
 
 export function parseItemsFromText(text) {
   const raw = String(text || '').trim();
@@ -52,6 +52,16 @@ function normalizeAddText(text) {
   return t;
 }
 
+function parseRemoveIntent(text) {
+  const t = String(text || '').trim();
+  const patterns = [/^מחק\s+(.+)$/u, /^להוריד\s+(.+)$/u, /^הסר\s+(.+)$/u, /^\/מחק\s+(.+)$/u, /^-\s*(.+)$/u];
+  for (const p of patterns) {
+    const m = t.match(p);
+    if (m) return m[1].trim();
+  }
+  return '';
+}
+
 export async function handleTelegramUpdate({ update, botToken, allowedChatId, publicBaseUrl }) {
   const msg = update?.message;
   if (!msg) return { ok: true, ignored: true };
@@ -84,14 +94,26 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 - רשימה
 - התחל קניות
 - להוסיף <פריט>
-- +<פריט>
+- מחק <פריט>
 
 דוגמאות:
 - להוסיף חלב
 - להוסיף חלב, ביצים
-- 2 חלב`,
+- 2 חלב
+- מחק חלב`,
     });
     return { ok: true, action: 'help' };
+  }
+
+  const removeName = parseRemoveIntent(text);
+  if (removeName) {
+    const out = await removeItemByName({ householdId: household.id, nameHe: removeName });
+    if (out.removed) {
+      await telegramSendMessage({ token: botToken, chatId, text: `הסרתי מהרשימה: ${removeName} ✅` });
+      return { ok: true, action: 'remove', removed: true };
+    }
+    await telegramSendMessage({ token: botToken, chatId, text: `לא מצאתי ברשימה: ${removeName}` });
+    return { ok: true, action: 'remove', removed: false };
   }
 
   if (text === 'רשימה' || text === '/רשימה') {

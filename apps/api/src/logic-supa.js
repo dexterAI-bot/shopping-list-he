@@ -60,6 +60,28 @@ export async function listActiveItems(householdId) {
   return data;
 }
 
+export async function removeItemByName({ householdId, nameHe }) {
+  const norm = normalizeName(nameHe);
+
+  const { data: row, error: selErr } = await supabase
+    .from('items')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('normalized_name', norm)
+    .eq('active', true)
+    .maybeSingle();
+  if (selErr) throw selErr;
+  if (!row) return { removed: false };
+
+  const { error: updErr } = await supabase
+    .from('items')
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq('id', row.id);
+  if (updErr) throw updErr;
+
+  return { removed: true, item: row };
+}
+
 export async function upsertItem({ householdId, nameHe, qty = null, unit = null }) {
   const norm = normalizeName(nameHe);
 
