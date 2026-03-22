@@ -49,6 +49,7 @@
     .item-name{font-weight:600}
     .empty{padding:18px;border:1px dashed var(--stroke);border-radius:14px;background:#0d183a80;text-align:center}
     .divider{height:1px;background:#32457f66;margin:10px 0}
+    .notice{margin-top:8px;font-size:13px;color:#cfe0ff}
 
     dialog{border:none;border-radius:16px;max-width:560px;width:92%;background:var(--card-solid);color:var(--text)}
     dialog::backdrop{background:rgba(0,0,0,.55)}
@@ -134,6 +135,7 @@ let state=null;
 let ui = { hideInCart:true, collapsedCats:{}, query:'', ...loadUi() };
 let pollTimer=null;
 let isLoading=false;
+let lastSavedStoreAt=0;
 
 async function api(path, opts={}){
   const method = String(opts.method || 'GET').toUpperCase();
@@ -201,6 +203,7 @@ async function saveStore(){
   const city=document.getElementById('storeCity').value.trim();
   if(!store_name){ alert('צריך שם חנות'); return; }
   await api(`/api/shopping/trip/${state.trip.id}/store`, { method:'POST', body: JSON.stringify({ store_name, store_branch: store_branch||null, city: city||null }) });
+  lastSavedStoreAt = Date.now();
   await load();
 }
 
@@ -220,7 +223,7 @@ function render(){
     el('span',{class:'pill'},[`בעגלה: ${inCartCount}`])
   );
 
-  root.appendChild(el('div',{class:'card'},[
+  const storeCardChildren = [
     el('h2',{},['איפה קונים היום?']),
     el('div',{class:'row'},[
       el('input',{id:'storeName',placeholder:'שם חנות',value: trip?.store_name||''}),
@@ -228,7 +231,11 @@ function render(){
       el('input',{id:'storeCity',placeholder:'עיר (אופציונלי)',value: trip?.city||''}),
       el('button',{class:'primary',onClick:saveStore},['שמור'])
     ])
-  ]));
+  ];
+  if(lastSavedStoreAt && Date.now()-lastSavedStoreAt < 8000){
+    storeCardChildren.push(el('div',{class:'notice'},['✅ נשמר בהצלחה']))
+  }
+  root.appendChild(el('div',{class:'card'}, storeCardChildren));
 
   const byCat = groupBy(items, it => it.category||'כללי');
   if(!items.length){
