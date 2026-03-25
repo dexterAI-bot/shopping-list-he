@@ -1,4 +1,7 @@
-import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems, removeItemByName, removeItemById } from './logic-supa.js';
+import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems, removeItemByName, removeItemById, updateItemQty } from './logic-supa.js';
+
+const SUSPICIOUS_NAMES = new Set(['להוסיף', 'רשימה', 'פריט', 'עזרה', 'התחל', 'מחק', 'הסר', 'לשנות']);
+const SUGGESTED_ITEMS = ['חלב', 'לחם', 'ביצים', 'מים', 'קפה'];
 
 export function parseItemsFromText(text) {
   const raw = String(text || '').trim();
@@ -16,6 +19,74 @@ export function parseItemsFromText(text) {
     if (m2) return { nameHe: m2[1].trim(), qty: Number(m2[2]) };
     return { nameHe: p, qty: null };
   });
+}
+
+function normalizeCandidateName(name) {
+  return (name || '')
+    .toLowerCase()
+    .replace(/["'“”׳״]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shouldConfirmItem(nameHe) {
+  const normalized = normalizeCandidateName(nameHe);
+  if (!normalized) return true;
+  if (normalized.length <= 2) return true;
+  if (/^\d+$/.test(normalized)) return true;
+  if (SUSPICIOUS_NAMES.has(normalized)) return true;
+  return false;
+}
+
+function buildListMessage(items) {
+  if (!items.length) return 'הרשימה ריקה כרגע.';
+  let out = `ברשימה יש ${items.length} פריטים:\n`;
+  items.forEach((it, idx) => {
+    const qty = it.qty != null ? ` (${it.qty}${it.unit ? ` ${it.unit}` : ''})` : '';
+    out += `${idx + 1}. ${it.name_he}${qty} • ${it.category || 'כללי'}\n`;
+  });
+  return out;
+}
+
+function formatQty(it) {
+  if (!it.qty) return '';
+  return `${it.qty}${it.unit ? ` ${it.unit}` : ''}`;
+}
+
+function parseItemIndex(text) {
+  const m = String(text || '').match(/פריט\s+(\d+)/im);
+  if (!m) return null;
+  return Number(m[1]);
+}
+
+function parseEditIntent(text) {
+  const m = text.match(/^(?:\u05dc\u05e9\u05a0\u05ea|\u05e9\u05e0\u05d4|\u05e2\u05d3\u05df)\s+פריט\s+(\d+)\s+ל\s+([0-9]+(?:[.,][0-9]+)?)/i);
+  if (!m) return null;
+  const qty = Number(m[2].replace(',', '.'));
+  return { index: Number(m[1]), qty: Number.isNaN(qty) ? null : qty };
+}
+
+function parseIndexedRemoveIntent(text) {
+  const m = text.match(/^(?:\u05de\u05d7\u05e7|\u05dc\u05de\u05d7\u05e7)\s+פריט\s+(\d+)/i);
+  if (!m) return null;
+  return Number(m[1]);
+}
+
+function createSuggestionKeyboard(nameHe) {
+  const buttons = SUGGESTED_ITEMS.map((item) => [
+    { text: item, callback_data: `add_suggest:${encodeURIComponent(item)}` },
+  ]);
+  buttons.push([
+    { text: `הוסף את "${nameHe}" בכל זאת`, callback_data: `confirm_item:${encodeURIComponent(nameHe)}` },
+  ]);
+  return buttons;
+}
+
+async function addItemByName({ householdId, nameHe, qty, token, chatId }) {
+  const row = await upsertItem({ householdId, nameHe, qty: typeof qty === 'number' ? qty : null });
+  const summary = `הוספתי: ${row.name_he}${formatQty(row) ? ` (${formatQty(row)})` : ''} ✅`;
+  await telegramSendMessage({ token, chatId, text: summary });
+  return row;
 }
 
 async function telegramApi(token, method, payload) {
@@ -69,7 +140,6 @@ function parseRemoveIntent(text) {
 }
 
 export async function handleTelegramUpdate({ update, botToken, allowedChatId, publicBaseUrl }) {
-  // Inline button callback: remove by item id
   if (update?.callback_query) {
     const cq = update.callback_query;
     const chatId = String(cq.message?.chat?.id || '');
@@ -91,6 +161,19 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
         await telegramSendMessage({ token: botToken, chatId, text: `הסרתי מהרשימה: ${out.item.name_he} ✅` });
       }
       return { ok: true, action: 'remove_callback', removed: out.removed };
+    }
+
+    if (data.startsWith('add_suggest:') || data.startsWith('confirm_item:')) {
+      const [cmd, payload] = data.split(':');
+      const nameHe = decodeURIComponent(payload);
+      const household = await ensureHouseholdByChatId(chatId, 'רשימת קניות');
+      await addItemByName({ householdId: household.id, nameHe, qty: null, token: botToken, chatId });
+      await telegramApi(botToken, 'answerCallbackQuery', {
+        callback_query_id: cq.id,
+        text: 'הוספתי את הפריט.',
+        show_alert: false,
+      });
+      return { ok: true, action: 'suggested_add' };
     }
 
     await telegramApi(botToken, 'answerCallbackQuery', {
@@ -133,12 +216,13 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 - התחל קניות
 - להוסיף <פריט>
 - מחק <פריט>
+- לשנות פריט 1 ל3 יחידות
 
 דוגמאות:
 - להוסיף חלב
 - להוסיף חלב, ביצים
 - 2 חלב
-- מחק חלב`,
+- מחק פריט 1`,
     });
     return { ok: true, action: 'help' };
   }
@@ -160,6 +244,19 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
     return { ok: true, action: 'remove_menu' };
   }
 
+  const removeIndex = parseIndexedRemoveIntent(text);
+  if (removeIndex) {
+    const items = await listActiveItems(household.id);
+    const target = items[removeIndex - 1];
+    if (!target) {
+      await telegramSendMessage({ token: botToken, chatId, text: `לא מצאתי פריט מספר ${removeIndex}.` });
+      return { ok: true, action: 'remove_index_failed' };
+    }
+    await removeItemById({ householdId: household.id, itemId: target.id });
+    await telegramSendMessage({ token: botToken, chatId, text: `הסרתי פריט ${removeIndex}: ${target.name_he} ✅` });
+    return { ok: true, action: 'remove_index' };
+  }
+
   const removeName = parseRemoveIntent(text);
   if (removeName) {
     const out = await removeItemByName({ householdId: household.id, nameHe: removeName });
@@ -173,36 +270,59 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 
   if (text === 'רשימה' || text === '/רשימה') {
     const items = await listActiveItems(household.id);
-    const grouped = new Map();
-    for (const it of items) {
-      const cat = it.category || 'כללי';
-      if (!grouped.has(cat)) grouped.set(cat, []);
-      grouped.get(cat).push(it);
-    }
-
-    let out = `ברשימה יש ${items.length} פריטים:\n`;
-    for (const [cat, its] of [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], 'he'))) {
-      out += `\n* ${cat}:\n`;
-      for (const it of its.slice(0, 15)) {
-        out += `- ${it.name_he}${it.qty ? ` (כמות: ${it.qty})` : ''}\n`;
-      }
-      if (its.length > 15) out += `- ... (+${its.length - 15})\n`;
-    }
-
-    await telegramSendMessage({ token: botToken, chatId, text: out });
+    const listText = buildListMessage(items);
+    await telegramSendMessage({ token: botToken, chatId, text: listText });
     return { ok: true, action: 'list' };
+  }
+
+  const editIntent = parseEditIntent(text);
+  if (editIntent) {
+    const items = await listActiveItems(household.id);
+    const target = items[editIntent.index - 1];
+    if (!target) {
+      await telegramSendMessage({ token: botToken, chatId, text: `לא מצאתי פריט מספר ${editIntent.index}.` });
+      return { ok: true, action: 'edit_failed' };
+    }
+    if (editIntent.qty === null) {
+      await telegramSendMessage({ token: botToken, chatId, text: 'לא הבנתי את הכמות החדשה.' });
+      return { ok: true, action: 'edit_failed' };
+    }
+    const row = await updateItemQty({ householdId: household.id, itemId: target.id, qty: editIntent.qty });
+    await telegramSendMessage({
+      token: botToken,
+      chatId,
+      text: `עדכנתי את פריט ${editIntent.index} (${row.name_he}) לכמות ${formatQty(row)}.`,
+    });
+    return { ok: true, action: 'edit', itemId: target.id };
   }
 
   if (!isExplicitAddIntent(text)) {
     await telegramSendMessage({
       token: botToken,
       chatId,
-      text: 'כדי להוסיף לרשימה כתבו: "להוסיף <פריט>" (לדוגמה: להוסיף חלב)\nלעזרה: עזרה',
+      text: 'כדי להוסיף לרשימה כתבו: "להוסיף <פריט>" (לדוגמה: להוסיף חלב)
+לעזרה: עזרה',
     });
     return { ok: true, action: 'ignored_non_add' };
   }
 
   const toAdd = parseItemsFromText(normalizeAddText(text));
+  if (!toAdd.length) {
+    await telegramSendMessage({ token: botToken, chatId, text: 'לא זיהיתי פריט מוסכם. נסה שוב.' });
+    return { ok: true, action: 'add_failed' };
+  }
+
+  const suspicious = toAdd.find((it) => shouldConfirmItem(it.nameHe));
+  if (suspicious) {
+    await telegramSendMessage({
+      token: botToken,
+      chatId,
+      text: `הפריט "${suspicious.nameHe}" לא נראה כמו מוצר של ממש. רוצה להוסיף אחד מההצעות או לאשר את השם הזה?`,
+      replyMarkup: { inline_keyboard: createSuggestionKeyboard(suspicious.nameHe) },
+    });
+    return { ok: true, action: 'confirm_add' };
+  }
+
   const added = [];
   for (const it of toAdd) {
     const row = await upsertItem({
@@ -215,7 +335,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 
   const summary =
     added.length === 1
-      ? `הוספתי: ${added[0].name_he}${added[0].qty ? ` (כמות: ${added[0].qty})` : ''} ✅`
+      ? `הוספתי: ${added[0].name_he}${formatQty(added[0]) ? ` (${formatQty(added[0])})` : ''} ✅`
       : `הוספתי ${added.length} פריטים ✅`;
 
   await telegramSendMessage({ token: botToken, chatId, text: summary });
