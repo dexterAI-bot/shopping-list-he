@@ -38,14 +38,39 @@ function shouldConfirmItem(nameHe) {
   return false;
 }
 
+function groupItemsByCategory(items) {
+  const map = new Map();
+  for (const it of items) {
+    const cat = it.category || 'כללי';
+    if (!map.has(cat)) map.set(cat, []);
+    map.get(cat).push(it);
+  }
+  return map;
+}
+
+function buildDisplayList(items) {
+  const grouped = groupItemsByCategory(items);
+  const sortedCats = [...grouped.keys()].sort((a, b) => a.localeCompare(b, 'he'));
+  const list = [];
+  for (const cat of sortedCats) {
+    const entries = grouped.get(cat) || [];
+    entries.sort((a, b) => a.name_he.localeCompare(b.name_he, 'he'));
+    for (const entry of entries) {
+      list.push({ item: entry, category: cat });
+    }
+  }
+  return list;
+}
+
 function buildListMessage(items) {
   if (!items.length) return 'הרשימה ריקה כרגע.';
+  const display = buildDisplayList(items);
   let out = `ברשימה יש ${items.length} פריטים:\n`;
-  items.forEach((it, idx) => {
-    const qty = it.qty != null ? ` (${it.qty}${it.unit ? ` ${it.unit}` : ''})` : '';
-    out += `${idx + 1}. ${it.name_he}${qty} • ${it.category || 'כללי'}\n`;
+  display.forEach(({ item }, idx) => {
+    const qty = item.qty != null ? ` (${item.qty}${item.unit ? ` ${item.unit}` : ''})` : '';
+    out += `${idx + 1}. ${item.name_he}${qty} • ${item.category || 'כללי'}\n`;
   });
-  return out;
+  return { text: out, display };
 }
 
 function formatQty(it) {
@@ -253,7 +278,8 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
   const removeIndex = parseIndexedRemoveIntent(text);
   if (removeIndex) {
     const items = await listActiveItems(household.id);
-    const target = items[removeIndex - 1];
+    const display = buildDisplayList(items);
+    const target = display[removeIndex - 1]?.item;
     if (!target) {
       await telegramSendMessage({ token: botToken, chatId, text: `לא מצאתי פריט מספר ${removeIndex}.` });
       return { ok: true, action: 'remove_index_failed' };
@@ -276,7 +302,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 
   if (text === 'רשימה' || text === '/רשימה') {
     const items = await listActiveItems(household.id);
-    const listText = buildListMessage(items);
+    const { text: listText } = buildListMessage(items);
     await telegramSendMessage({ token: botToken, chatId, text: listText });
     return { ok: true, action: 'list' };
   }
@@ -284,7 +310,8 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
   const editIntent = parseEditIntent(text);
   if (editIntent) {
     const items = await listActiveItems(household.id);
-    const target = items[editIntent.index - 1];
+    const display = buildDisplayList(items);
+    const target = display[editIntent.index - 1]?.item;
     if (!target) {
       await telegramSendMessage({ token: botToken, chatId, text: `לא מצאתי פריט מספר ${editIntent.index}.` });
       return { ok: true, action: 'edit_failed' };
