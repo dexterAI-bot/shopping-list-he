@@ -2,6 +2,11 @@ import { startShopping, ensureHouseholdByChatId, upsertItem, listActiveItems, re
 
 const SUSPICIOUS_NAMES = new Set(['להוסיף', 'רשימה', 'פריט', 'עזרה', 'התחל', 'מחק', 'הסר', 'לשנות']);
 const SUGGESTED_ITEMS = ['חלב', 'לחם', 'ביצים', 'מים', 'קפה'];
+const displayCache = new Map();
+
+function clearDisplayCache(chatId) {
+  displayCache.delete(chatId);
+}
 
 export function parseItemsFromText(text) {
   const raw = String(text || '').trim();
@@ -48,6 +53,8 @@ function groupItemsByCategory(items) {
   return map;
 }
 
+const displayCache = new Map();
+
 function buildDisplayList(items) {
   const grouped = groupItemsByCategory(items);
   const sortedCats = [...grouped.keys()].sort((a, b) => a.localeCompare(b, 'he'));
@@ -63,8 +70,10 @@ function buildDisplayList(items) {
 }
 
 function buildListMessage(items) {
-  if (!items.length) return 'הרשימה ריקה כרגע.';
   const display = buildDisplayList(items);
+  if (!display.length) {
+    return { text: 'הרשימה ריקה כרגע.', display: [] };
+  }
   let out = `ברשימה יש ${items.length} פריטים:\n`;
   display.forEach(({ item }, idx) => {
     const qty = item.qty != null ? ` (${item.qty}${item.unit ? ` ${item.unit}` : ''})` : '';
@@ -189,6 +198,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
       });
 
       if (out.removed) {
+        clearDisplayCache(chatId);
         await telegramSendMessage({ token: botToken, chatId, text: `הסרתי מהרשימה: ${out.item.name_he} ✅` });
       }
       return { ok: true, action: 'remove_callback', removed: out.removed };
@@ -277,14 +287,14 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 
   const removeIndex = parseIndexedRemoveIntent(text);
   if (removeIndex) {
-    const items = await listActiveItems(household.id);
-    const display = buildDisplayList(items);
+    const display = displayCache.get(chatId) || buildDisplayList(await listActiveItems(household.id));
     const target = display[removeIndex - 1]?.item;
     if (!target) {
       await telegramSendMessage({ token: botToken, chatId, text: `לא מצאתי פריט מספר ${removeIndex}.` });
       return { ok: true, action: 'remove_index_failed' };
     }
     await removeItemById({ householdId: household.id, itemId: target.id });
+    clearDisplayCache(chatId);
     await telegramSendMessage({ token: botToken, chatId, text: `הסרתי פריט ${removeIndex}: ${target.name_he} ✅` });
     return { ok: true, action: 'remove_index' };
   }
@@ -293,6 +303,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
   if (removeName) {
     const out = await removeItemByName({ householdId: household.id, nameHe: removeName });
     if (out.removed) {
+      clearDisplayCache(chatId);
       await telegramSendMessage({ token: botToken, chatId, text: `הסרתי מהרשימה: ${removeName} ✅` });
       return { ok: true, action: 'remove', removed: true };
     }
@@ -302,7 +313,8 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 
   if (text === 'רשימה' || text === '/רשימה') {
     const items = await listActiveItems(household.id);
-    const { text: listText } = buildListMessage(items);
+    const { text: listText, display } = buildListMessage(items);
+    displayCache.set(chatId, display);
     await telegramSendMessage({ token: botToken, chatId, text: listText });
     return { ok: true, action: 'list' };
   }
@@ -370,6 +382,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
       ? `הוספתי: ${added[0].name_he}${formatQty(added[0]) ? ` (${formatQty(added[0])})` : ''} ✅`
       : `הוספתי ${added.length} פריטים ✅`;
 
+  clearDisplayCache(chatId);
   await telegramSendMessage({ token: botToken, chatId, text: summary });
   return { ok: true, action: 'add', count: added.length };
   } catch (error) {
