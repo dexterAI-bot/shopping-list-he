@@ -106,7 +106,12 @@ async function telegramApi(token, method, payload) {
 export async function telegramSendMessage({ token, chatId, text, replyMarkup = null }) {
   const payload = { chat_id: chatId, text, disable_web_page_preview: true };
   if (replyMarkup) payload.reply_markup = replyMarkup;
-  return telegramApi(token, 'sendMessage', payload);
+  try {
+    return await telegramApi(token, 'sendMessage', payload);
+  } catch (error) {
+    console.error('telegram send failed', error);
+    return { ok: false, error: String(error) };
+  }
 }
 
 function isExplicitAddIntent(text) {
@@ -140,6 +145,7 @@ function parseRemoveIntent(text) {
 }
 
 export async function handleTelegramUpdate({ update, botToken, allowedChatId, publicBaseUrl }) {
+  try {
   if (update?.callback_query) {
     const cq = update.callback_query;
     const chatId = String(cq.message?.chat?.id || '');
@@ -300,8 +306,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
     await telegramSendMessage({
       token: botToken,
       chatId,
-      text: 'כדי להוסיף לרשימה כתבו: "להוסיף <פריט>" (לדוגמה: להוסיף חלב)
-לעזרה: עזרה',
+      text: 'כדי להוסיף לרשימה כתבו: "להוסיף <פריט>" (לדוגמה: להוסיף חלב)\nלעזרה: עזרה',
     });
     return { ok: true, action: 'ignored_non_add' };
   }
@@ -340,4 +345,8 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
 
   await telegramSendMessage({ token: botToken, chatId, text: summary });
   return { ok: true, action: 'add', count: added.length };
+  } catch (error) {
+    console.error('handleTelegramUpdate error', error);
+    return { ok: false, error: String(error) };
+  }
 }

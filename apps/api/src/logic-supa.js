@@ -172,19 +172,19 @@ export async function startShopping({ householdId, expiresHours = 12 }) {
 
   return { token, tripId: trip.id, expiresAt };
 }
-+
-+export async function updateItemQty({ householdId, itemId, qty }) {
-+  const { data, error } = await supabase
-+    .from('items')
-+    .update({ qty, updated_at: new Date().toISOString() })
-+    .eq('household_id', householdId)
-+    .eq('id', itemId)
-+    .eq('active', true)
-+    .select('*')
-+    .single();
-+  if (error) throw error;
-+  return data;
-+}
+
+export async function updateItemQty({ householdId, itemId, qty }) {
+  const { data, error } = await supabase
+    .from('items')
+    .update({ qty, updated_at: new Date().toISOString() })
+    .eq('household_id', householdId)
+    .eq('id', itemId)
+    .eq('active', true)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
 
 export async function getSession(token) {
   const nowIso = new Date().toISOString();
