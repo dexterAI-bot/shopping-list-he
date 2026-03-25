@@ -373,7 +373,7 @@ export async function handleTelegramUpdate({ update, botToken, allowedChatId, pu
   await telegramSendMessage({ token: botToken, chatId, text: summary });
   return { ok: true, action: 'add', count: added.length };
   } catch (error) {
-    console.error('handleTelegramUpdate error', error);
+    console.error('handleTelegramUpdate error', String(error), update);
     return { ok: false, error: String(error) };
   }
 }
